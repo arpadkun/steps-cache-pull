@@ -335,7 +335,7 @@ func main() {
 		failf("ERROR: missing or invalid required environment variable:  LOCAL_CACHE_DST_URL")
 	}
 
-	numCPU := 8
+	numCPU := 6
 	LocalCacheKey := os.Getenv("LOCAL_CACHE_KEY")
 	LocalCacheKeyDecoded, _ := base64.URLEncoding.DecodeString(LocalCacheKey)
 
