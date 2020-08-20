@@ -149,6 +149,23 @@ func failf(format string, args ...interface{}) {
 	os.Exit(1)
 }
 
+/////////////////////////////////////////////
+// rsync process' function
+func rsyncProcess(receivedRsyncParams []string) (string, error) {
+
+	rsynccmd := exec.Command("rsync", receivedRsyncParams...)
+
+	var output string
+	rsyncoutput, err := rsynccmd.CombinedOutput()
+	if err != nil {
+		output = string(rsyncoutput)
+		return output, err
+	}
+
+	output = string(rsyncoutput)
+	return output, nil
+}
+
 func main() {
 	var conf Config
 	if err := stepconf.Parse(&conf); err != nil {
@@ -261,6 +278,14 @@ func main() {
 	// LOCAL_CACHE_KEY
 
 	// Getting the ssh key into variable
+	if len(os.Getenv("LOCAL_CACHE_KEY")) < 1000 {
+		failf("ERROR: missing or invalid required environment variable:  LOCAL_CACHE_KEY")
+	}
+
+	if len(os.Getenv("LOCAL_CACHE_DST_URL")) < 15 {
+		failf("ERROR: missing or invalid required environment variable:  LOCAL_CACHE_DST_URL")
+	}
+
 	LocalCacheKey := os.Getenv("LOCAL_CACHE_KEY")
 	LocalCacheKeyDecoded, _ := base64.URLEncoding.DecodeString(LocalCacheKey)
 
@@ -295,28 +320,26 @@ func main() {
 	// Downloading file list first
 	log.Infof("Downloading file list first...")
 	rsyncArgsListOnly := []string{"-e", rsyncSettingsSSHsetup, "--dirs", "--archive", "--no-D", "--inplace", "--executability", "--ignore-errors", "--force", "--compress", "--stats", "--human-readable", "--no-whole-file", "--prune-empty-dirs", rsyncSettingsDestinationURL + LocalCacheFilesListFile, HomeDir}
-	fmt.Printf("%v\n\n", rsyncArgsListOnly)
+	fmt.Printf("DEBUG:  %v\n\n", rsyncArgsListOnly)
 
-	cmdGetList := exec.Command("rsync", rsyncArgsListOnly...)
-
-	outputGetList, err := cmdGetList.CombinedOutput()
+	rsyncoutput, err := rsyncProcess(rsyncArgsListOnly)
 	if err != nil {
-		os.Stderr.WriteString(fmt.Sprintf("==> Error: %v\n", err.Error()))
+		os.Stderr.WriteString(fmt.Sprintf("==> rsync error:\n%v\n\n", err.Error()))
 	}
-	log.Printf("%v\n", string(outputGetList))
 
+	fmt.Printf("==> rsync output:\n%v\n\n", rsyncoutput)
+
+	//////////////////////////////////////////////////
 	// Syncing down the files using the downloaded list
 	log.Infof("Syncing files now...")
 	rsyncArgs := []string{"-e", rsyncSettingsSSHsetup, rsyncSettingsFilesFrom, "--dirs", "--relative", "--archive", "--no-D", "--inplace", "--executability", "--delete", "--ignore-errors", "--force", "--compress", "--stats", "--human-readable", "--no-whole-file", "--prune-empty-dirs", rsyncSettingsDestinationURL, "/"}
-	fmt.Printf("%v\n\n", rsyncArgs)
+	fmt.Printf("DEBUG:  %v\n\n", rsyncArgs)
 
-	cmd := exec.Command("rsync", rsyncArgs...)
-
-	output, err := cmd.CombinedOutput()
+	output, err := rsyncProcess(rsyncArgs)
 	if err != nil {
-		os.Stderr.WriteString(fmt.Sprintf("==> Error: %v\n", err.Error()))
+		os.Stderr.WriteString(fmt.Sprintf("==> rsync error:\n%v\n\n", err.Error()))
 	}
-	log.Printf("%v\n", string(output))
+	log.Printf("==> rsync output:\n%v\n\n", string(output))
 
 	// K:  cycling through the files/directories that are required to be saved
 	// log.Printf("\n============================================================================================")
