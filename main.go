@@ -369,7 +369,7 @@ func main() {
 
 	// Downloading file list first
 	log.Infof("Downloading file list first...")
-	rsyncArgsListOnly := []string{"-e", rsyncSettingsSSHsetup, "--dirs", "--archive", "--no-D", "--inplace", "--executability", "--ignore-errors", "--force", "--compress", "--stats", "--human-readable", "--no-whole-file", rsyncSettingsDestinationURL + LocalCacheFilesListFile, HomeDir}
+	rsyncArgsListOnly := []string{"-e", rsyncSettingsSSHsetup, "--dirs", "--archive", "--no-D", "--inplace", "--executability", "--ignore-errors", "--force", "--stats", "--human-readable", "--no-whole-file", rsyncSettingsDestinationURL + LocalCacheFilesListFile, HomeDir} // "--compress",
 	fmt.Printf("DEBUG:  %v\n\n", rsyncArgsListOnly)
 
 	rsyncoutput, err := rsyncProcess(rsyncArgsListOnly)
