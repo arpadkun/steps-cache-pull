@@ -200,7 +200,7 @@ func worker(id int, LocalCacheFilesListFile string, FilesForOneWorker []string, 
 	rsyncSettingsFilesFrom := "--files-from=" + LocalCacheFilesListFileWorkerID
 	rsyncSettingsDestinationURL := LocalCacheFilesDstURL
 
-	rsyncArgs := []string{"-e", rsyncSettingsSSHsetup, rsyncSettingsFilesFrom, "--dirs", "--relative", "--archive", "--no-D", "--inplace", "--executability", "--delete", "--ignore-errors", "--force", "--compress", "--stats", "--human-readable", "--no-whole-file", "--prune-empty-dirs", rsyncSettingsDestinationURL, "/"}
+	rsyncArgs := []string{"-e", rsyncSettingsSSHsetup, rsyncSettingsFilesFrom, "--dirs", "--relative", "--archive", "--no-D", "--inplace", "--executability", "--delete", "--ignore-errors", "--force", "--compress", "--stats", "--human-readable", "--no-whole-file", rsyncSettingsDestinationURL, "/"}
 	fmt.Printf("DEBUG:  %v\n\n", rsyncArgs)
 
 	// Starting the rsync process here
@@ -335,7 +335,7 @@ func main() {
 		failf("ERROR: missing or invalid required environment variable:  LOCAL_CACHE_DST_URL")
 	}
 
-	numCPU := 6
+	numCPU := os.Getenv("LOCAL_CACHE_SYNC_WORKERS")
 	LocalCacheKey := os.Getenv("LOCAL_CACHE_KEY")
 	LocalCacheKeyDecoded, _ := base64.URLEncoding.DecodeString(LocalCacheKey)
 
@@ -369,7 +369,7 @@ func main() {
 
 	// Downloading file list first
 	log.Infof("Downloading file list first...")
-	rsyncArgsListOnly := []string{"-e", rsyncSettingsSSHsetup, "--dirs", "--archive", "--no-D", "--inplace", "--executability", "--ignore-errors", "--force", "--compress", "--stats", "--human-readable", "--no-whole-file", "--prune-empty-dirs", rsyncSettingsDestinationURL + LocalCacheFilesListFile, HomeDir}
+	rsyncArgsListOnly := []string{"-e", rsyncSettingsSSHsetup, "--dirs", "--archive", "--no-D", "--inplace", "--executability", "--ignore-errors", "--force", "--compress", "--stats", "--human-readable", "--no-whole-file", rsyncSettingsDestinationURL + LocalCacheFilesListFile, HomeDir}
 	fmt.Printf("DEBUG:  %v\n\n", rsyncArgsListOnly)
 
 	rsyncoutput, err := rsyncProcess(rsyncArgsListOnly)
