@@ -335,7 +335,7 @@ func main() {
 		failf("ERROR: missing or invalid required environment variable:  LOCAL_CACHE_DST_URL")
 	}
 
-	numCPU := os.Getenv("LOCAL_CACHE_SYNC_WORKERS")
+	numCPU, err := strconv.Atoi(os.Getenv("LOCAL_CACHE_SYNC_WORKERS"))
 	LocalCacheKey := os.Getenv("LOCAL_CACHE_KEY")
 	LocalCacheKeyDecoded, _ := base64.URLEncoding.DecodeString(LocalCacheKey)
 
