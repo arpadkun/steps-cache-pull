@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -420,6 +421,7 @@ func main() {
 	chunkSize := (len(FilesToSync) + numCPU - 1) / numCPU
 	fmt.Printf("Chunksize per worker: %#v\n", chunkSize)
 
+	sort.Strings(FilesToSync)
 	for i := 0; i < len(FilesToSync); i += chunkSize {
 		end := i + chunkSize
 		if end > len(FilesToSync) {
