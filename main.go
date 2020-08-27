@@ -157,7 +157,7 @@ func failf(format string, args ...interface{}) {
 // rsync process' function
 func rsyncProcess(receivedRsyncParams []string) (string, error) {
 
-	rsynccmd := exec.Command("rsync", receivedRsyncParams...)
+	rsynccmd := exec.Command("time", receivedRsyncParams...)
 
 	var output string
 	rsyncoutput, err := rsynccmd.CombinedOutput()
@@ -201,7 +201,7 @@ func worker(id int, LocalCacheFilesListFile string, FilesForOneWorker []string, 
 	rsyncSettingsFilesFrom := "--files-from=" + LocalCacheFilesListFileWorkerID
 	rsyncSettingsDestinationURL := LocalCacheFilesDstURL
 
-	rsyncArgs := []string{"-e", rsyncSettingsSSHsetup, rsyncSettingsFilesFrom, "--relative", "--archive", "--no-D", "--executability", "--delete", "--ignore-errors", "--force", "--stats", "--human-readable", rsyncSettingsDestinationURL, "/"} // "--compress", "--dirs", "--inplace","--no-whole-file",
+	rsyncArgs := []string{"rsync", "-e", rsyncSettingsSSHsetup, rsyncSettingsFilesFrom, "--relative", "--archive", "--no-D", "--executability", "--delete", "--ignore-errors", "--force", "--stats", "--human-readable", rsyncSettingsDestinationURL, "/"} // "--compress", "--dirs", "--inplace","--no-whole-file",
 	fmt.Printf("DEBUG:  %v\n\n", rsyncArgs)
 
 	// Starting the rsync process here
