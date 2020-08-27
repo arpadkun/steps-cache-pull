@@ -201,7 +201,7 @@ func worker(id int, LocalCacheFilesListFile string, FilesForOneWorker []string, 
 	rsyncSettingsFilesFrom := "--files-from=" + LocalCacheFilesListFileWorkerID
 	rsyncSettingsDestinationURL := LocalCacheFilesDstURL
 
-	rsyncArgs := []string{"-e", rsyncSettingsSSHsetup, rsyncSettingsFilesFrom, "--exclude='*/'", "--relative", "--archive", "--no-D", "--inplace", "--executability", "--delete", "--ignore-errors", "--force", "--stats", "--human-readable", "--no-whole-file", rsyncSettingsDestinationURL, "/"} // "--compress", "--dirs",
+	rsyncArgs := []string{"-e", rsyncSettingsSSHsetup, rsyncSettingsFilesFrom, "--relative", "--archive", "--no-D", "--executability", "--delete", "--ignore-errors", "--force", "--stats", "--human-readable", rsyncSettingsDestinationURL, "/"} // "--compress", "--dirs", "--inplace","--no-whole-file",
 	fmt.Printf("DEBUG:  %v\n\n", rsyncArgs)
 
 	// Starting the rsync process here
