@@ -319,10 +319,6 @@ func main() {
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-	log.Printf("-----------------------------AKARMI Printf-----------------------------")
-	log.Infof("-----------------------------AKARMI Infof-----------------------------")
-	fmt.Println("-----------------------------AKARMI fmt.println-----------------------------")
-
 	// Requirements, set up ENV Variables as secrets <-----:
 	// LOCAL_CACHE_DST_URL
 	// LOCAL_CACHE_KEY
@@ -336,13 +332,18 @@ func main() {
 		failf("ERROR: missing or invalid required environment variable:  LOCAL_CACHE_DST_URL")
 	}
 
-	numCPU, err := strconv.Atoi(os.Getenv("LOCAL_CACHE_SYNC_WORKERS"))
 	LocalCacheKey := os.Getenv("LOCAL_CACHE_KEY")
 	LocalCacheKeyDecoded, _ := base64.URLEncoding.DecodeString(LocalCacheKey)
 
 	HomeDir := os.Getenv("HOME")
 	LocalCacheStorageSSHKeyFile := HomeDir + "/.ssh/local_cache.key"
-	LocalCacheFilesListFile := HomeDir + "/.local_cache_file_list"
+
+	LocalCacheFilesListDir := HomeDir + "/.local_cache_xfer_lists"                      // Dir - file lists go into this directory (control plane)
+	LocalCacheFilesListFile := LocalCacheFilesListDir + "/local_cache_file_list"        // File - list of all files to transfer
+	LocalCacheLargeFilesDirXferList := LocalCacheFilesListDir + "/chunked_dir_list"     // File - list containing which directories were tar'ed and chunked up
+	LocalCacheLargeFilesDirXferChunks := LocalCacheFilesListDir + "/chunked_dir_chunks" // File - list containing the split tar file names, like xaa, xab, etc... Using this to send up what needs to be pulled
+	LocalCacheLargeFilesDirXferDir := HomeDir + "/.local_cache_xfer"                    // Dir - for large file chunks that are split up (data plane)
+
 	LocalCacheFilesDstURL := os.Getenv("LOCAL_CACHE_DST_URL")
 	LocalCacheStoragePort := "22"
 	LocalCacheStoragePortTimeout := "3"
@@ -361,6 +362,13 @@ func main() {
 		fmt.Println(err)
 	}
 
+	var numCPU int
+	if len(os.Getenv("LOCAL_CACHE_SYNC_WORKERS")) == 0 {
+		numCPU = 6 // Default for parallel workers if ENV variable is missing
+	} else {
+		numCPU, err = strconv.Atoi(os.Getenv("LOCAL_CACHE_SYNC_WORKERS"))
+	}
+
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Downloading the file containing what files to sync (a file with a list of of files and directories)
 	// Configuring rsync parameters
@@ -368,9 +376,10 @@ func main() {
 	//rsyncSettingsFilesFrom := "--files-from=" + LocalCacheFilesListFile
 	rsyncSettingsDestinationURL := LocalCacheFilesDstURL
 
-	// Downloading file list first
+	// Downloading two file lists first: the file with all files to transfer and the list of the chunked directories
 	log.Infof("Downloading file list first...")
-	rsyncArgsListOnly := []string{"rsync", "-e", rsyncSettingsSSHsetup, "--dirs", "--archive", "--no-D", "--inplace", "--executability", "--ignore-errors", "--force", "--stats", "--human-readable", "--no-whole-file", rsyncSettingsDestinationURL + LocalCacheFilesListFile, HomeDir} // "--compress",
+	rsyncArgsListOnly := []string{"rsync", "-e", rsyncSettingsSSHsetup, "--dirs", "--archive", "--no-D", "--inplace", "--executability", "--ignore-errors", "--force", "--stats", "--human-readable", "--no-whole-file", rsyncSettingsDestinationURL + LocalCacheFilesListDir, HomeDir} // "--compress",
+
 	fmt.Printf("DEBUG:  %v\n\n", rsyncArgsListOnly)
 
 	rsyncoutput, err := rsyncProcess(rsyncArgsListOnly)
@@ -386,7 +395,6 @@ func main() {
 	// Reading file list and splitting it up into arrays:  [worker#][array of file names]
 
 	filesToSyncSourceFile, err := os.Open(LocalCacheFilesListFile)
-
 	if err != nil {
 		log.Warnf("Failed to open list of files to sync, assuming no previous cache, continuing without pulling cache: %s", err)
 		return
@@ -433,6 +441,37 @@ func main() {
 	}
 
 	/////////////////////////////////////////////////////////////////////////////////////////
+	// Load up chunks file names (xaa, xab, xac) from LocalCacheLargeFilesDirXferChunks and distribute them across workers:
+	var xferChunkFileList []string
+	chunksSourceFile, err := os.Open(LocalCacheLargeFilesDirXferChunks)
+	if err != nil {
+		log.Warnf("Failed to open *chunk list* file, assuming no \"Directory with large files\" was configured (this is OK), continuing: %s", err)
+	} else {
+		scanner := bufio.NewScanner(chunksSourceFile)
+		scanner.Split(bufio.ScanLines)
+
+		for scanner.Scan() {
+			xferChunkFileList = append(xferChunkFileList, scanner.Text())
+		}
+		chunksSourceFile.Close()
+	}
+
+	// Distributing to workwer arrays based on worker count
+	var numCPUCounter int
+	numCPUCounter = 0
+	numOfChunkedFiles := len(xferChunkFileList)
+	fmt.Printf("Number of Chunked Files:  %v\n", numOfChunkedFiles)
+	for e := 0; e <= numOfChunkedFiles-1; e++ { // Cycling through all files in the chunk list
+		fmt.Printf("Worker %v gets chunkfile:  %v (%v/%v)\n", numCPUCounter, xferChunkFileList[e], e+1, numOfChunkedFiles)
+
+		filesDivided[numCPUCounter] = append(filesDivided[numCPUCounter], xferChunkFileList[e]) // Distributing chunk files into the filesDivided arrays
+		if numCPUCounter == numCPU-1 {
+			numCPUCounter = -1 // Once reached the max numCPU count, reset to the first array
+		}
+		numCPUCounter++
+	}
+
+	/////////////////////////////////////////////////////////////////////////////////////////
 	// Spin up workers
 	log.Infof("Syncing files now...")
 
@@ -447,6 +486,73 @@ func main() {
 	wg.Wait()
 
 	/////////////////////////////////////////////////////////////////////////////////////////
+	// Once all files arrived, let's unpack the chunked directories
+
+	readChunkedDirsToUnpack, err := os.Open(LocalCacheLargeFilesDirXferList)
+
+	if err != nil {
+		log.Warnf("Failed to open list directories with large files, assuming none was created on push step, continuing: %s", err)
+		return
+	}
+
+	chunkedscanner := bufio.NewScanner(readChunkedDirsToUnpack)
+	chunkedscanner.Split(bufio.ScanLines)
+	var chunkedDirsToUnpack []string
+
+	for chunkedscanner.Scan() {
+		chunkedDirsToUnpack = append(chunkedDirsToUnpack, chunkedscanner.Text())
+	}
+	readChunkedDirsToUnpack.Close()
+
+	numberOfChunkedDirs := len(chunkedDirsToUnpack)
+	if numberOfChunkedDirs == 0 {
+		log.Infof("File list for directories with large files is empty, nothing to unpack, continuing...")
+		return
+	}
+
+	fmt.Printf("Number of files to sync: %#v\n", numberOfChunkedDirs)
+
+	for unpackThisDir := range chunkedDirsToUnpack {
+
+		chunkFiles := LocalCacheLargeFilesDirXferDir + chunkedDirsToUnpack[unpackThisDir] + "/x*"
+		fmt.Printf("Unpacking Directory: [%s] from [%s] ...\n", chunkedDirsToUnpack[unpackThisDir], chunkFiles)
+
+		// Concatenating the chunks into tar and extracting
+		// cat /Users/vagrant/.local_cache_xfer/Users/vagrant/git/.git/x* | tar -xf - -C /
+		// tarDirArgs := []string{"cat", "-lcf", archiveName, packThisDir}
+
+		untarCmd := "cat " + chunkFiles + " | tar -xf - -C /"
+		out, err := exec.Command("bash", "-c", untarCmd).CombinedOutput()
+		if err != nil {
+			os.Stderr.WriteString(fmt.Sprintf("==> tar unpacking error:\n%v\n\n", err.Error()))
+		}
+		log.Printf("%v\n", string(out))
+
+		// if err != nil {
+		// 	fmt.Sprintf("Failed to execute command: %s", string(untarCmd))
+		// }
+		// fmt.Println(string(out))
+
+		///////////////////////////////////////////////////////////////
+		// Could not make the builtin pipe work
+		// catCmd := exec.Command("cat", chunkFiles)
+		// untarCmd := exec.Command("tar", "-xf", "-", "-C", "/")
+
+		// pr, pw := io.Pipe()
+		// catCmd.Stdout = pw
+		// untarCmd.Stdin = pr
+		// untarCmd.Stdout = os.Stdout
+
+		// catCmd.Start()
+		// untarCmd.Start()
+
+		// go func() {
+		// 	defer pw.Close()
+		// 	catCmd.Wait()
+		// }()
+		// untarCmd.Wait()
+		///////////////////////////////////////////////////////////////
+	}
 
 	// K:  cycling through the files/directories that are required to be saved
 	// log.Printf("\n============================================================================================")
